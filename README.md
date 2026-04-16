@@ -1,6 +1,6 @@
 # Async BOF/COFF Loader
 
-This asynchronous object file loader is implemented as a standalone Windows DLL in Nim. While it has been primarily created for [Conquest](https://github.com/jakobfriedl/conquest/) and its `Monarch` agent, any other post-exploitation framework with DLL loading capabilities can use `async-bof.dll` to execute Beacon Object Files in the background without blocking the main agent thread. 
+This object file loader is implemented as a standalone Windows DLL in Nim. While it has been primarily created for [Conquest](https://github.com/jakobfriedl/conquest/) and its `Monarch` agent, any other post-exploitation framework with DLL loading capabilities can use `async-bof.dll` to execute Beacon Object Files in the background without blocking the main agent thread. 
 
 Use-cases: 
 - Process creation notifications
@@ -13,7 +13,7 @@ Use-cases:
 
 ## Design
 
-In Conquest, the `async-bof.dll` is executed using the `dll` command, which loads a DLL from memory and executes a specified function in a new thread. Since the DLL is completely self-contained with an independent COFF loader and Beacon API implementation, it is able to fully execute the BOF even when sleepmask is enabled and the agents memory is encrypted.
+In Conquest, the `async-bof.dll` is executed using the `dll` command, which loads a DLL from memory and executes a specified function in a new thread. Since the DLL is completely self-contained with an independent COFF loader and Beacon API implementation, it is able to execute the BOF even when sleepmask is enabled and the agents memory is encrypted.
 
 The exported function that is run by the DLL loader has the following signature: 
 
