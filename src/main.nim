@@ -31,7 +31,7 @@ proc parseArguments(args: PBYTE, argsLen: DWORD): tuple[obj: PBYTE, objLen: DWOR
     result.objArgs = cast[PBYTE](cast[uint](args) + 4 + bofLen + 4)
     result.objArgsLen = cast[DWORD](bofArgsLen)
 
-proc Run(args: PBYTE, argsLen: DWORD, hWrite: HANDLE, hWakeup: HANDLE, hStop: HANDLE): BOOL {.stdcall, exportc, dynlib.} =
+proc Run(args: PBYTE, argsLen: DWORD, hWrite, hWakeup, hStop: HANDLE): BOOL {.stdcall, exportc, dynlib.} =
     NimMain()
 
     gOutputPipe = hWrite
