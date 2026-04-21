@@ -294,7 +294,7 @@ type
 
 proc BeaconIsAdmin(): BOOL {.stdcall.}=
     let 
-        hNtdll = GetModuleHandleA("ndll")
+        hNtdll = GetModuleHandleA("ntdll")
         pNtOpenProcessToken = cast[NtOpenProcessToken](GetProcAddress(hNtdll, "NtOpenProcessToken"))
         pNtOpenThreadToken = cast[NtOpenThreadToken](GetProcAddress(hNtdll, "NtOpenThreadToken"))
         pNtQueryInformationToken = cast[NtQueryInformationToken](GetProcAddress(hNtdll, "NtQueryInformationToken"))
@@ -346,7 +346,6 @@ proc toWideChar(src: PCHAR, dst: PWSTR, max: int): BOOL {.stdcall.} =
     if max < sizeof(WCHAR):
         return FALSE
     return if MultiByteToWideChar(CP_ACP, 0, src, -1, dst, int32(max div sizeof(WCHAR))) != 0: TRUE else: FALSE
-
 
 #[
     Data Storage Functions

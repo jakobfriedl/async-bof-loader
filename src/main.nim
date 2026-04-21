@@ -7,13 +7,6 @@ proc DllMain(hinstDLL: HINSTANCE, fdwReason: DWORD, lpvReserved: LPVOID): BOOL
              {.stdcall, exportc, dynlib.} =
     return TRUE
 
-#[
-    Parse DLL arguments
-    - objectSize: 4 bytes
-    - objectBytes: variable
-    - argumentsSize: 4 bytes
-    - argumentsBytes: variable
-]#
 proc parseArguments(args: PBYTE, argsLen: DWORD): tuple[obj: PBYTE, objLen: DWORD, objArgs: PBYTE, objArgsLen: DWORD] =
     if args == nil or argsLen < 8:
         return
