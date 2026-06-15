@@ -8,27 +8,38 @@ proc DllMain(hinstDLL: HINSTANCE, fdwReason: DWORD, lpvReserved: LPVOID): BOOL
     return TRUE
 
 proc parseArguments(args: PBYTE, argsLen: DWORD): tuple[obj: PBYTE, objLen: DWORD, objArgs: PBYTE, objArgsLen: DWORD, entryFunc: string] =
-    if args == nil or argsLen < 8:
+    if args == nil or argsLen < 12:
         return
 
-    let bofLen = cast[ptr uint32](args)[]
-    if argsLen < cast[DWORD](4 + bofLen + 4):
-        return
+    var curr = cast[uint](args)
+    let limit = curr + cast[uint](argsLen)
 
-    let bofArgsLen = cast[ptr uint32](cast[uint](args) + 4 + bofLen)[]
-    if argsLen < cast[DWORD](4 + bofLen + 4 + bofArgsLen):
-        return
+    template getUint32(): uint32 =
+        if curr + 4 > limit: 
+            return
+        let value = cast[ptr uint32](curr)[]
+        curr += 4
+        value
 
-    let entryFuncLen = cast[ptr uint32](cast[uint](args) + 4 + bofLen + 4 + bofArgsLen)[]
-    if argsLen < cast[DWORD](4 + bofLen + 4 + bofArgsLen + 4 + entryFuncLen):
-        return
+    template getDataWithLengthPrefix(len: uint32): PBYTE =
+        if curr + cast[uint](len) > limit: 
+            return
+        let value = cast[PBYTE](curr)
+        curr += cast[uint](len)
+        value
 
-    result.obj = cast[PBYTE](cast[uint](args) + 4)
+    let bofLen = getUint32()
+    result.obj = getDataWithLengthPrefix(bofLen)
     result.objLen = cast[DWORD](bofLen)
-    result.objArgs = cast[PBYTE](cast[uint](args) + 4 + bofLen + 4)
-    result.objArgsLen = cast[DWORD](bofArgsLen)    
+
+    let bofArgsLen = getUint32()
+    result.objArgs = getDataWithLengthPrefix(bofArgsLen)
+    result.objArgsLen = cast[DWORD](bofArgsLen)
+
+    let entryFuncLen = getUint32()
+    let entryFuncPtr = getDataWithLengthPrefix(entryFuncLen)
     result.entryFunc = newString(entryFuncLen)
-    copyMem(addr result.entryFunc[0], cast[cstring](cast[uint](args) + 4 + bofLen + 4 + bofArgsLen + 4), entryFuncLen)
+    copyMem(addr result.entryFunc[0], entryFuncPtr, entryFuncLen)
 
 proc Run(args: PBYTE, argsLen: DWORD, hWrite, hWakeup, hStop: HANDLE): BOOL {.stdcall, exportc, dynlib.} =
     NimMain()
