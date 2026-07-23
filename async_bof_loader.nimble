@@ -9,7 +9,8 @@ srcDir        = "src"
 # Build task
 
 task dll, "Build DLL":
-    exec "nim c --os:windows --cpu:amd64 --gcc.exe:x86_64-w64-mingw32-gcc --gcc.linkerexe:x86_64-w64-mingw32-gcc --mm:none --app:lib --nomain -d:danger --passL:\"-static-libgcc\" -o:dist/async-bof.dll src/main.nim"
+    exec "nim c --os:windows --cpu:amd64 --gcc.exe:x86_64-w64-mingw32-gcc --gcc.linkerexe:x86_64-w64-mingw32-gcc --mm:none --app:lib --nomain -d:danger --passL:\"-static-libgcc\" -o:dist/async-bof.x64.dll src/main.nim"
+    exec "nim c --os:windows --cpu:i386 --gcc.exe:i686-w64-mingw32-gcc --gcc.linkerexe:i686-w64-mingw32-gcc --mm:none --app:lib --nomain -d:danger --passL:\"-static-libgcc\" -o:dist/async-bof.x86.dll src/main.nim"
 
 # Dependencies
 requires "nim >= 2.2.8"
