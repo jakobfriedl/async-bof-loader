@@ -17,10 +17,7 @@ import ./[beacon, utils]
 ]#
 
 # Type definitions
-when defined(amd64):
-    const IMP_PREFIX = "__imp_"
-else:
-    const IMP_PREFIX = "__imp__"
+const IMP_PREFIX = "__imp_"
 
 type
     SECTION_MAP = object
@@ -133,47 +130,47 @@ proc objectResolveSymbol(symbol: var PSTR, stringTable: PCHAR): PVOID =
     if symbol == nil:
         raise newException(CatchableError, protect("Symbol is nil."))
 
-    let fullSymbol = $symbol
+    # Extract function name after import prefix (__imp_)
+    var symbolName = ($symbol)[IMP_PREFIX.len..^1]
 
-    # Extract function name after import prefix (x64: __imp_, x86: __imp__)
-    var funcName = fullSymbol[IMP_PREFIX.len..^1]
+    # On x86, strip optional leading underscore and stdcall @N suffix
+    when not defined(amd64):
+        if symbolName.len > 0 and symbolName[0] == '_':
+            symbolName = symbolName[1..^1]
+        var suffixIndex = -1
+        for k in 0 ..< symbolName.len:
+            if symbolName[k] == '@':
+                suffixIndex = k
+                break
+        if suffixIndex != -1:
+            symbolName = symbolName[0 ..< suffixIndex]
 
     # Check for internal Beacon functions
-    if funcName.startsWith("Beacon") or
-       funcName.startsWith("toWideChar") or
-       funcName.startsWith("LoadLibraryA") or
-       funcName.startsWith("GetProcAddress") or
-       funcName.startsWith("GetModuleHandleA") or
-       funcName.startsWith("FreeLibrary"):
+    if symbolName.startsWith("Beacon") or
+       symbolName.startsWith("toWideChar") or
+       symbolName.startsWith("LoadLibraryA") or
+       symbolName.startsWith("GetProcAddress") or
+       symbolName.startsWith("GetModuleHandleA") or
+       symbolName.startsWith("FreeLibrary"):
 
         for i in 0 ..< beaconApiAddresses.len():
-            if funcName == beaconApiAddresses[i].name:
+            if symbolName == beaconApiAddresses[i].name:
                 resolved = beaconApiAddresses[i].address
                 return resolved
 
-        raise newException(CatchableError, protect("Failed to resolve internal symbol: ") & funcName)
-
-    # Remove import prefix for external symbols
-    symbol = cast[PSTR](cast[uint](symbol) + IMP_PREFIX.len)
+        raise newException(CatchableError, protect("Failed to resolve internal symbol: ") & symbolName)
 
     # External Win32 APIs use the following format: LIBRARY$Function
     zeroMem(addr buffer[0], MAX_PATH)
-    copyMem(addr buffer[0], symbol, ($symbol).len())
+    copyMem(addr buffer[0], addr symbolName[0], symbolName.len)
 
     pos = cast[PSTR](strchr(addr buffer[0], '$'))
     if pos == nil:
-        raise newException(CatchableError, protect("Invalid external symbol format: ") & $symbol)
+        raise newException(CatchableError, protect("Invalid external symbol format: ") & symbolName)
     pos[] = '\0'
 
     library = cast[PSTR](addr buffer[0])
     function = cast[PSTR](cast[uint](pos) + 1)
-
-    # On x86, function could have a @N suffix, which needs to be removed
-    # e.g. __imp__KERNEL32$GetProcessHeap@0
-    when not defined(amd64):
-        var atPos = cast[PSTR](strchr(function, '@'))
-        if atPos != nil:
-            atPos[] = '\0'
 
     # Resolve the library instance
     hModule = GetModuleHandleA(library)
@@ -327,11 +324,12 @@ proc objectExecute(objCtx: POBJECT_CTX, entry: PSTR, args: PBYTE, argsLen: DWORD
         let symName = getSymbolName(objSym, stringTable)
 
         # Check if the function is defined within the object file
-        # On x86, symbols, including the "go" entry point, have a leading underscore, which has to be removed
+        # On x86, symbols, including the "go" entry point, may have a leading underscore, which has to be removed
         when defined(amd64):
             let entryMatch = symName == $entry
         else:
-            let entryMatch = symName == "_" & $entry
+            let entryMatch = symName == $entry or symName == "_" & $entry
+
         if ISFCN(objSym.Type) and entryMatch:
             secBase = secMap[objSym.SectionNumber - 1].base
             secSize = secMap[objSym.SectionNumber - 1].size
